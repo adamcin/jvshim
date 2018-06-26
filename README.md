@@ -11,3 +11,10 @@ minimum `-XX:MaxMetaspaceSize` is set, and that the `-Xmx` and `-Xms` are reduce
 `MetaspaceSize <= MaxMetaspaceSize`, `InitialHeapSize <= MaxHeapSize`, and `MaxHeapSize + MaxMetaspaceSize <= CGroupMemLimit`.
 
 This command was ported from a bash script that is included along side for comparison.
+
+Searching PATH for `java`
+-------------------------
+
+`jvshim` is designed to be slipped into shell's PATH variable to intercept calls to `java`. When dispatching to the real java, it skips its own path
+if found before the jvm.
+
