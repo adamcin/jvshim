@@ -17,6 +17,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -27,7 +28,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"errors"
 )
 
 const CGroupMemLimitFile = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
