@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"errors"
 )
 
 const CGroupMemLimitFile = "/sys/fs/cgroup/memory/memory.limit_in_bytes"
@@ -46,6 +47,8 @@ func usage() {
   --showjava                      : Print the underlying java command and quit.
   --showmem                       : Print jvm settings/flags with -version.
   --help                          : Print this help message and exit.
+  --exit [ <code> ]               : Exit immediately with <code>. Used by jvshim to prevent recursive path executions. Exits with 0 by default, 
+                                    since real java would fail on the unknown flag!
 
   <javaArgs> ...                  : Specify additional arguments for passing to java executable. See below for special cases:
     -XX:MaxMetaspaceSize=?        : If not specified and cgroup limit is in effect, will be set to at least %s, 
@@ -116,6 +119,14 @@ func parseArgs() ParsedArgs {
 		opt := os.Args[i]
 		if opt == "--help" {
 			showHelp = true
+		} else if opt == "--exit" {
+			if len(os.Args) > i+1 {
+				baseInt, err := strconv.ParseUint(os.Args[i+1], 10, 64)
+				if err == nil {
+					os.Exit(int(baseInt))
+				}
+			}
+			os.Exit(0)
 		} else if opt == "--showmem" {
 			showMem = true
 		} else if opt == "--showjava" {
@@ -254,51 +265,61 @@ func fmtMem(base int64, pow uint) string {
 }
 
 // ErrNotFound is the error resulting if a path search failed to find an executable file.
-func findExecutable(file string) error {
+func findExecutableNotShim(file string) error {
 	d, err := os.Stat(file)
 	if err != nil {
 		return err
 	}
 	if m := d.Mode(); !m.IsDir() && m&0111 != 0 {
-		return nil
+		argv0, errv := filepath.Abs(os.Args[0])
+		exec0, errx := os.Executable()
+		if (errv == nil && file == argv0) || (errx == nil && file == exec0) {
+			// skip argv0 in case I was found on the path
+			return errors.New("detected jvshim based on exec path " + file)
+		} else {
+			code := 42
+			cmd := exec.Command(file, "-version", "--exit", strconv.Itoa(code))
+			if errc := cmd.Run(); errc != nil {
+				return errors.New("file is not java " + file)
+			} else {
+				return nil
+			}
+		}
 	}
 	return os.ErrPermission
 }
 
-// modified version of LookPath that skips argv0 if found in the path, which should
+// modified version of LookPath that skips argv0 or other jvshim executable if found in the path, which should
 // allow linking this as "java" into the path.
 // LookPath searches for an executable binary named file
 // in the directories named by the PATH environment variable.
 // If file contains a slash, it is tried directly and the PATH is not consulted.
 // The result may be an absolute path or a path relative to the current directory.
-func lookPathNotMe(file string) (string, error) {
+func lookPathNotShim(file string) (string, error) {
 	// NOTE(rsc): I wish we could use the Plan 9 behavior here
 	// (only bypass the path if file begins with / or ./ or ../)
 	// but that would not match all the Unix shells.
 	if strings.Contains(file, "/") {
-		err := findExecutable(file)
+		err := findExecutableNotShim(file)
 		if err == nil {
 			return file, nil
 		}
-		return "", &exec.Error{file, err}
+		return "", &exec.Error{Name: file, Err: err}
 	}
 	path := os.Getenv("PATH")
-	me, merr := filepath.Abs(os.Args[0])
+
 	for _, dir := range filepath.SplitList(path) {
 		if dir == "" {
 			// Unix shell semantics: path element "" means "."
 			dir = "."
 		}
 		path := filepath.Join(dir, file)
-		if merr == nil && path == me {
-			// skip me in case I was found on the path
-			continue
-		}
-		if err := findExecutable(path); err == nil {
+
+		if err := findExecutableNotShim(path); err == nil {
 			return path, nil
 		}
 	}
-	return "", &exec.Error{file, exec.ErrNotFound}
+	return "", &exec.Error{Name: file, Err: exec.ErrNotFound}
 }
 
 func determineJavaExecutable(javacmd string) (string, error) {
@@ -310,7 +331,7 @@ func determineJavaExecutable(javacmd string) (string, error) {
 	}
 
 	if len(javacmd) > 0 {
-		javacmd, err := lookPathNotMe(javacmd)
+		javacmd, err := lookPathNotShim(javacmd)
 		if err != nil {
 			return "", err
 		} else {
