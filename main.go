@@ -270,7 +270,8 @@ func findExecutableNotShim(file string) error {
 	if err != nil {
 		return err
 	}
-	if m := d.Mode(); !m.IsDir() && m&0111 != 0 {
+
+	if m := d.Mode(); m.IsRegular() && m&0111 != 0 {
 		argv0, errv := filepath.Abs(os.Args[0])
 		exec0, errx := os.Executable()
 		if (errv == nil && file == argv0) || (errx == nil && file == exec0) {
@@ -324,22 +325,28 @@ func lookPathNotShim(file string) (string, error) {
 
 func determineJavaExecutable(javacmd string) (string, error) {
 	javaExec := "java"
-	if len(os.Getenv("JRE_HOME")) > 0 {
-		javaExec = os.Getenv("JRE_HOME") + "/bin/java"
-	} else if len(os.Getenv("JAVA_HOME")) > 0 {
-		javaExec = os.Getenv("JAVA_HOME") + "/bin/java"
-	}
-
-	if len(javacmd) > 0 {
-		javacmd, err := lookPathNotShim(javacmd)
-		if err != nil {
-			return "", err
-		} else {
-			javaExec = javacmd
+	if len(javacmd) == 0 {
+		if len(os.Getenv("JRE_HOME")) > 0 {
+			javaExec = os.Getenv("JRE_HOME") + "/bin/java"
+		} else if len(os.Getenv("JAVA_HOME")) > 0 {
+			javaExec = os.Getenv("JAVA_HOME") + "/bin/java"
 		}
+	} else {
+		javaExec = javacmd
 	}
 
-	return javaExec, nil
+	pathpath, err := filepath.EvalSymlinks(javaExec)
+	if err != nil {
+		return javaExec, err
+	} else {
+		javaExec = pathpath
+	}
+
+	if filepath.IsAbs(javaExec) {
+		return javaExec, nil
+	} else {
+		return lookPathNotShim(javaExec)
+	}
 }
 
 func determineTotalMemLimit(testlimit int64) int64 {
@@ -447,7 +454,7 @@ func main() {
 
 	if prefs.ShowMem {
 		showmemArgs := append(jvmArgs, "-XshowSettings:vm", "-XX:+PrintCommandLineFlags", "-version")
-		if err := syscall.Exec(javaExec, showmemArgs, os.Environ()); err != nil {
+		if err := syscall.Exec(javaExec, append([]string{javaExec}, showmemArgs...), os.Environ()); err != nil {
 			log.Fatal(err)
 		}
 	} else if prefs.ShowJava {
