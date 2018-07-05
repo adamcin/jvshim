@@ -1,0 +1,5 @@
+FROM java:8
+
+COPY --from=jvshim:latest /go/bin/jvshim /usr/local/bin/java
+
+ENTRYPOINT ["/bin/bash", "-c"]
