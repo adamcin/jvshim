@@ -264,27 +264,55 @@ func fmtMem(base int64, pow uint) string {
 	}
 }
 
+// store os.FileInfo pointer for os.Executable()
+var ExecFileInfo *os.FileInfo
+
+func resolveExecInfo() {
+	// first resolve the reported executable path
+	exec0, errx := os.Executable()
+	if errx == nil {
+		// attempt to normalize to regular file
+		exec0, errx = filepath.EvalSymlinks(exec0)
+		if errx == nil {
+			// save fileinfo for use in os.SameFile() calls
+			if dexec, staterr := os.Stat(exec0); staterr == nil {
+				ExecFileInfo = &dexec
+				// short-circuit to avoid setting to nil
+				return
+			}
+		}
+	}
+	// set to nil if an error was thrown
+	ExecFileInfo = nil
+}
+
 // ErrNotFound is the error resulting if a path search failed to find an executable file.
 func findExecutableNotShim(file string) error {
-	d, err := os.Stat(file)
+	pathpath, err := filepath.EvalSymlinks(file)
 	if err != nil {
 		return err
 	}
 
-	if m := d.Mode(); m.IsRegular() && m&0111 != 0 {
-		argv0, errv := filepath.Abs(os.Args[0])
-		exec0, errx := os.Executable()
-		if (errv == nil && file == argv0) || (errx == nil && file == exec0) {
+	d, err := os.Stat(pathpath)
+	if err != nil {
+		return err
+	}
+
+	m := d.Mode()
+
+	if m.IsRegular() && m&0111 != 0 {
+		if ExecFileInfo != nil && os.SameFile(d, *ExecFileInfo) {
 			// skip argv0 in case I was found on the path
-			return errors.New("detected jvshim based on exec path " + file)
+			return errors.New("detected jvshim based on current exec path " + pathpath)
+		}
+
+		code := 42
+		cmd := exec.Command(file, "-version", "--exit", strconv.Itoa(code))
+		if errc := cmd.Run(); errc != nil {
+			return errors.New("file is not java " + file)
 		} else {
-			code := 42
-			cmd := exec.Command(file, "-version", "--exit", strconv.Itoa(code))
-			if errc := cmd.Run(); errc != nil {
-				return errors.New("file is not java " + file)
-			} else {
-				return nil
-			}
+			// success!!
+			return nil
 		}
 	}
 	return os.ErrPermission
@@ -324,6 +352,8 @@ func lookPathNotShim(file string) (string, error) {
 }
 
 func determineJavaExecutable(javacmd string) (string, error) {
+	resolveExecInfo()
+
 	javaExec := "java"
 	if len(javacmd) == 0 {
 		if len(os.Getenv("JRE_HOME")) > 0 {
@@ -333,13 +363,6 @@ func determineJavaExecutable(javacmd string) (string, error) {
 		}
 	} else {
 		javaExec = javacmd
-	}
-
-	pathpath, err := filepath.EvalSymlinks(javaExec)
-	if err != nil {
-		return javaExec, err
-	} else {
-		javaExec = pathpath
 	}
 
 	if filepath.IsAbs(javaExec) {
