@@ -162,7 +162,7 @@ func parseArgs() ParsedArgs {
 		} else if opt == "-jar" {
 			// treat -jar as final jvm arg, just like we do `*`
 			// when it doesn't match `-*`
-			programArgs = os.Args[:i]
+			programArgs = os.Args[i:]
 			break
 		} else if opt == "-cp" || opt == "-classpath" {
 			// classpath is the only java option other -jar that takes
@@ -180,7 +180,7 @@ func parseArgs() ParsedArgs {
 			passthruArgs = append(passthruArgs, opt)
 		} else {
 			// treat everything else as a program argument
-			programArgs = os.Args[:i]
+			programArgs = os.Args[i:]
 			break
 		}
 	}
