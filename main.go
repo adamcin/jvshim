@@ -448,7 +448,7 @@ func main() {
 		// -Xmx should be set ergonomically if:
 		// 1. it was not set explicitly, or
 		// 2. the ergo value is less than the explicitly preferred value
-		if prefs.PrefMaxHeap > 0 || ergoXmx < prefs.PrefMaxHeap {
+		if prefs.PrefMaxHeap == 0 || ergoXmx < prefs.PrefMaxHeap {
 			// convert to at least K units to ensure multiple of 1024
 			jvmSet = append(jvmSet, Xmx+fmtMem(ergoXmx, 0))
 			// only specify -Xms if it was explicitly set originally.
